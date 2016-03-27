@@ -63,7 +63,6 @@ geometry cube;
 geometry cubeLines;
 //GLuint VAO_Sphere;
 geometry sphere;
-geometry sphereLines;
 geometry squareMass;
 geometry square;
 int squareCount = 8;
@@ -262,8 +261,7 @@ void main()                                                                     
     switch(flag)                                                                    \n\
     {                                                                               \n\
     case 0:                                                                         \n\
-        FragColor = ColorOut*                                 						\n\
-                (AmbientColor);                                      				\n\
+        FragColor = ColorOut * AmbientColor; 										\n\
         break;                                                                      \n\
     case 1:                                                                         \n\
         FragColor.rgb =  															\n\
@@ -271,11 +269,12 @@ void main()                                                                     
 		LightColor * LightPower * cosTheta / (distance*distance)).rgb;				\n\
         break;                                                                      \n\
     case 2:                                                                         \n\
-        FragColor.rgb = Procedural();                                               \n\
+        FragColor.rgb = Procedural() * (AmbientColor.xyz +							\n\
+		LightColor * LightPower * cosTheta / (distance*distance)).rgb;				\n\
         break;                                                                      \n\
     case 3:                                                                         \n\
-        FragColor = vec4(tex_gen(TexCoord0), 1.0);                                  \n\
-                                                                                    \n\
+        FragColor.rgb = tex_gen(TexCoord0) * (AmbientColor.xyz +					\n\
+		LightColor * LightPower * cosTheta / (distance*distance)).rgb;				\n\
     }                                                                               \n\
 }";
 
@@ -285,21 +284,34 @@ void main()                                                                     
  */
 
 void CalcNormals(const unsigned int* pIndices, unsigned int IndexCount,
-		Vector3f* pVertices, Vector3f* pNormal, unsigned int VertexCount){
-        for (unsigned int i = 0; i < IndexCount; i +=3 ){
-            unsigned int Index0 = pIndices[i];
-            unsigned int Index1 = pIndices[i + 1];
-            unsigned int Index2 = pIndices[i + 2];
-            Vector3f v1 = pVertices[Index1] - pVertices[Index0];
-            Vector3f v2 = pVertices[Index2] - pVertices[Index0];
-            Vector3f Normal = v1.Cross(v2);
-            Normal.Normalize();
-            pNormal[Index0] = Normal;
-            pNormal[Index1] = Normal;
-            pNormal[Index2] = Normal;
-            std::cout << (float)Normal.x << " " << (float)Normal.y << " " << (float)Normal.z << std::endl;
-        }
-
+		Vector3f* pVertices, Vector3f* pNormal, unsigned int VertexCount)
+	{
+		if (IndexCount)
+			for (unsigned int i = 0; i < IndexCount; i +=3 ){
+				unsigned int Index0 = pIndices[i];
+				unsigned int Index1 = pIndices[i + 1];
+				unsigned int Index2 = pIndices[i + 2];
+				Vector3f v1 = pVertices[Index1] - pVertices[Index0];
+				Vector3f v2 = pVertices[Index2] - pVertices[Index0];
+				Vector3f Normal = v1.Cross(v2);
+				Normal.Normalize();
+				pNormal[Index0] = Normal;
+				pNormal[Index1] = Normal;
+				pNormal[Index2] = Normal;
+			}
+		else
+	        for (unsigned int i = 0; i < VertexCount; i +=3 ){
+	            unsigned int Index0 = i;
+	            unsigned int Index1 = (i + 1 < VertexCount)?(i + 1):1;
+	            unsigned int Index2 = (i + 2 < VertexCount)?(i + 2):2;
+	            Vector3f v1 = pVertices[Index1] - pVertices[Index0];
+	            Vector3f v2 = pVertices[Index2] - pVertices[Index0];
+	            Vector3f Normal = v1.Cross(v2);
+	            Normal.Normalize();
+	            pNormal[Index0] = Normal;
+	            pNormal[Index1] = Normal;
+	            pNormal[Index2] = Normal;
+	        }
         for (unsigned int i = 0; i < VertexCount; i++){
         	pNormal[i].Normalize();
         }
@@ -326,7 +338,9 @@ void InitGrid(unsigned int count, float step){
 		buff[i*4+3].y = 0.0f;
 		buff[i*4+3].z = -c/2 + i*step;
 	}
-	grid.GenBuffers(NULL, 0, buff, NULL, NULL, count * 4);
+	Vector3f Normals[count * 4];
+    CalcNormals(NULL, 0, buff, Normals, count * 4);
+	grid.GenBuffers(NULL, 0, buff, NULL, Normals, count * 4);
 	grid.PutData(step, count);
 }
 
@@ -455,7 +469,9 @@ void InitsquareMass(float radius, int count)
 			Vertices[i*count*6 + j*6 + 5] 	= Vector3f(-radius + 2*i*radius/(count-1), 		0.0f, -radius + 2*j*radius/(count-1));
 			//std::cout << Vertices[i*count + j].x << " " << Vertices[i*count + j].y << " " << Vertices[i*count + j].z << std::endl;
 		}
-	squareMass.GenBuffers(NULL, NULL, Vertices, NULL, NULL, count*count*6 + count*6);
+	Vector3f Normals[count*count*6 + count*6];
+    CalcNormals(NULL, 0, Vertices, Normals, count*count*6 + count*6);
+	squareMass.GenBuffers(NULL, NULL, Vertices, NULL, Normals, count*count*6 + count*6);
 	squareMass.PutData(radius, count);
 }
 
@@ -478,43 +494,10 @@ void InitSquare(float radius, int count)
 		Tex_Vertices[2] = Vector2f(0.0f, 0.0f);
 		Tex_Vertices[3] = Vector2f(1.0f, 0.0f);
 
-	square.GenBuffers(Indices, sizeof(Indices), Vertices, Tex_Vertices, NULL, 4);
+	Vector3f Normals[4];
+	CalcNormals(Indices, 6, Vertices, Normals, 4);
+	square.GenBuffers(Indices, sizeof(Indices), Vertices, Tex_Vertices, Normals, 4);
 	square.PutData(radius, count);
-}
-
-void InitSphereLines(float RADIUS, unsigned int POINT_COUNT)
-{
-	float x, y, z;
-	Vector3f buff[POINT_COUNT*POINT_COUNT];
-	int POINT_COUNT_T = POINT_COUNT - 1;
-	for (int i = 0; i < POINT_COUNT; ++i)
-	{
-		y = RADIUS*cos(i*pi/POINT_COUNT_T);
-		for (int j = 0; j < POINT_COUNT; ++j)
-		{
-			x = RADIUS*sin(i*pi/POINT_COUNT_T)*cos(2*j*pi/POINT_COUNT_T);
-			z = RADIUS*sin(i*pi/POINT_COUNT_T)*sin(2*j*pi/POINT_COUNT_T);
-			buff[POINT_COUNT*i + j].x = x;
-			buff[POINT_COUNT*i + j].y = y;
-			buff[POINT_COUNT*i + j].z = z;
-		}
-	}
-
-	unsigned int Indices[POINT_COUNT*POINT_COUNT*6];
-	for (int i = 0; i < POINT_COUNT; ++i)
-	{
-		for (int j = 0; j < POINT_COUNT; ++j)
-		{
-			Indices[i*POINT_COUNT*6 + j*6] = i*POINT_COUNT + j;
-			Indices[i*POINT_COUNT*6 + j*6 + 1] = i*POINT_COUNT +j + 1;
-			Indices[i*POINT_COUNT*6 + j*6 + 2] = (i+1)*POINT_COUNT + j;
-			Indices[i*POINT_COUNT*6 + j*6 + 3] = i*POINT_COUNT +j + 1;
-			Indices[i*POINT_COUNT*6 + j*6 + 4] = (i+1)*POINT_COUNT + j;
-			Indices[i*POINT_COUNT*6 + j*6 + 5] = (i+1)*POINT_COUNT + j + 1;
-		}
-	}
-	sphereLines.GenBuffers(Indices, sizeof(Indices), buff, NULL, NULL, POINT_COUNT*POINT_COUNT);
-	sphereLines.PutData(RADIUS, POINT_COUNT);
 }
 
 void InitSphere(float RADIUS, unsigned int POINT_COUNT)
@@ -537,8 +520,8 @@ void InitSphere(float RADIUS, unsigned int POINT_COUNT)
 			Tex_Vertices[POINT_COUNT*i + j].y = i/(float)POINT_COUNT_T;
 		}
 	}
-
-	unsigned int Indices[POINT_COUNT*POINT_COUNT*6 + POINT_COUNT*6 + 6];
+	unsigned int tmpsize = POINT_COUNT*POINT_COUNT*6 + POINT_COUNT*6 + 6;
+	unsigned int Indices[tmpsize];
 	for (int i = 0; i < POINT_COUNT; ++i)
 	{
 		for (int j = 0; j < POINT_COUNT; ++j)
@@ -551,7 +534,7 @@ void InitSphere(float RADIUS, unsigned int POINT_COUNT)
 			Indices[i*POINT_COUNT*6 + j*6 + 5] = (i+1)*POINT_COUNT + j + 1;
 		}
 	}
-	Vector3f Normals[POINT_COUNT*POINT_COUNT];
+	Vector3f Normals[tmpsize];
     CalcNormals(Indices, POINT_COUNT*POINT_COUNT*6, buff, Normals, POINT_COUNT*POINT_COUNT);
 	sphere.GenBuffers(Indices, sizeof(Indices), buff, Tex_Vertices, Normals, POINT_COUNT*POINT_COUNT);
 	sphere.PutData(RADIUS, POINT_COUNT);
@@ -616,6 +599,7 @@ static void RenderSceneCB()
 
     glEnableVertexAttribArray(0);
     //===================================== Grid ==========================================*/
+    glEnableVertexAttribArray(2);
 	glUniform1i(ShaderFlag, 0);
 
     glUniform3f(Color, 0.0, 1.0, 0.0);
@@ -631,12 +615,15 @@ static void RenderSceneCB()
 							NULL							//Начальное смещение в структуре, которуе получит наш конвейер
 							);
 
+    glBindBuffer(GL_ARRAY_BUFFER, grid.VBO_NORMALS);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 	glDrawArrays			(								//Не использует индексную отрисовку
 							GL_LINES, 						//Что рисуем
 							0, 								//С какой позиции бежим по массиву вершин
 							2 * (grid.count * 2)			//Сколько точек передаем в буфер
 							);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDisableVertexAttribArray(2);
     //===================================== Cube ==========================================*/
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
@@ -667,6 +654,7 @@ static void RenderSceneCB()
     glDisableVertexAttribArray(1);
 
     //=================================== CubeLines ========================================*/
+    glEnableVertexAttribArray(2);
 	glUniform1i(ShaderFlag, 0);
 
     p.WorldPos(0.0f, 1.0f, 0.0f);
@@ -681,6 +669,7 @@ static void RenderSceneCB()
     glDrawElements(GL_LINES, 12*2, GL_UNSIGNED_INT, 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glDisableVertexAttribArray(2);
 
     //==================================== Earth ===========================================*/
     glEnableVertexAttribArray(1);
@@ -710,8 +699,8 @@ static void RenderSceneCB()
     glDrawElements(GL_TRIANGLES, sphere.count*sphere.count*6, GL_UNSIGNED_INT, 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glDisableVertexAttribArray(1);
     glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(1);
 
     //==================================== Moon ===========================================*/
     glEnableVertexAttribArray(1);
@@ -754,6 +743,7 @@ static void RenderSceneCB()
 
     //===================================== Sun ===========================================*/
     glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
     glUniform1i(ShaderFlag, 1);
     p.Scale(
     		0.4f, 	//Изменить масштаб по х
@@ -784,28 +774,12 @@ static void RenderSceneCB()
     glDrawElements(GL_TRIANGLES, sphere.count*sphere.count*6, GL_UNSIGNED_INT, 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glDisableVertexAttribArray(2);
     glDisableVertexAttribArray(1);
-
-
-    //================================= SphereLines =========================================*/
-    /*
-    glUniform1i(ShaderFlag, 0);
-
-    p.WorldPos(0.0f, 10.0f, 10.0f);
-    glUniformMatrix4fv(gWVPLocation, 1, GL_TRUE, (const GLfloat*)p.GetTrans());
-
-    glUniform3f(Color, 0.0, 1.0, 1.0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, sphere.VBO);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphere.IBO);
-
-    glDrawElements(GL_LINES, sphere.count*sphere.count*6 + sphere.count*6 + 6, GL_UNSIGNED_INT, 0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
 	//================================= Procedural_0 ==========================================*/
 
+    glEnableVertexAttribArray(2);
 	glUniform1i(ShaderFlag, 2);
 
     p.WorldPos(0.0f, -10.0f, 0.0f);
@@ -823,6 +797,8 @@ static void RenderSceneCB()
     						);
     glBindBuffer(GL_ARRAY_BUFFER, squareMass.VBO);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+    glBindBuffer(GL_ARRAY_BUFFER, squareMass.VBO_NORMALS);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 
 	glDrawArrays			(								//Не использует индексную отрисовку
 							GL_TRIANGLES, 					//Что рисуем
@@ -831,9 +807,11 @@ static void RenderSceneCB()
 							);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glDisableVertexAttribArray(2);
 
 	//================================= Procedural_1 ==========================================*/
     glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
 	glUniform1i(ShaderFlag, 3);
 
     p.WorldPos(-20.0f, 10.0f, 0.0f);
@@ -849,12 +827,15 @@ static void RenderSceneCB()
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
     glBindBuffer(GL_ARRAY_BUFFER, square.VBO_TEX);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glBindBuffer(GL_ARRAY_BUFFER, square.VBO_NORMALS);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, square.IBO);
 
 
     glDrawElements(GL_TRIANGLES, 2*3, GL_UNSIGNED_INT, 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glDisableVertexAttribArray(2);
     glDisableVertexAttribArray(1);
 
     //==================================== End ==============================================*/
@@ -882,7 +863,6 @@ static void SpecialKeyboardCB(int Key, int x, int y)
 		case GLUT_KEY_F1:
 			ShaderFlagSquarei++;
 			ShaderFlagSquarei = ShaderFlagSquarei%2;
-			//std::cout << "!" << std::endl;
 			break;
 		}
 	}
@@ -1144,7 +1124,6 @@ int main(int argc, char** argv)
     InitCubeLines();
     InitSphere(1.0f, 50);
     InitSquare(20, squareCount);
-    //InitSphereLines(2.0f, 50);
     for (int i = 0; i < 12; ++i)
     	if (!pTexture[i]->Load()) {
     		std::cout << i << std::endl;
